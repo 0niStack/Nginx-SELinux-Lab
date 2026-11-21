@@ -1,0 +1,71 @@
+---
+- name: Nginx with SELinux enforcing
+  hosts: web
+  become: true
+  vars:
+    web_root: /srv/mysite
+    upload_dir: /srv/mysite/uploads
+    listen_port: 8081
+    enable_proxy: false
+  tasks:
+    - name: Install packages
+      ansible.builtin.dnf:
+        name: [nginx, policycoreutils-python-utils, python3-libsemanage, python3-policycoreutils]
+        state: present
+
+    - name: Ensure SELinux is enforcing
+      ansible.posix.selinux:
+        policy: targeted
+        state: enforcing
+
+    - name: Create directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: nginx
+        group: nginx
+        mode: "0755"
+      loop: ["{{ web_root }}", "{{ upload_dir }}"]
+
+    - name: Label web root
+      community.general.sefcontext:
+        target: "{{ web_root }}(/.*)?"
+        setype: httpd_sys_content_t
+        state: present
+
+    - name: Label upload dir
+      community.general.sefcontext:
+        target: "{{ upload_dir }}(/.*)?"
+        setype: httpd_sys_rw_content_t
+        state: present
+
+    - name: Apply labels
+      ansible.builtin.command: restorecon -Rv {{ web_root }}
+      changed_when: false
+
+    - name: Allow custom port
+      community.general.seport:
+        ports: "{{ listen_port }}"
+        proto: tcp
+        setype: http_port_t
+        state: present
+
+    - name: Allow proxy connections
+      ansible.posix.seboolean:
+        name: httpd_can_network_connect
+        state: true
+        persistent: true
+      when: enable_proxy | bool
+
+    - name: Open firewall port
+      ansible.posix.firewalld:
+        port: "{{ listen_port }}/tcp"
+        permanent: true
+        immediate: true
+        state: enabled
+
+    - name: Start nginx
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true

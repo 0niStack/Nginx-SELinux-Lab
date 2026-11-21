@@ -1,0 +1,13 @@
+# Requires: httpd_can_network_connect=on (ENABLE_PROXY=1)
+upstream app_backend {
+    server 127.0.0.1:3000;
+}
+server {
+    listen 8082;
+    location / {
+        proxy_pass http://app_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
